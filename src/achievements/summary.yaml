@@ -1,9 +1,9 @@
 total_achievements: 3
 impact_areas:
   - "Technical Impact"
-  - "DevOps Excellence"
+  - "DevOps"
   - "Leadership"
-highest_impact: "Optimized API Performance"
+highest_impact: "API Performance Optimization"
 trend_over_time:
   - date: "2024-01"
     count: 1
