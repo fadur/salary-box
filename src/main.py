@@ -1,83 +1,98 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-
-# import numpy as np
 import os
+import glob
+import re
+
+# Import the achievements dashboard functionality
+try:
+    from achievements_dashboard import render_achievements_dashboard
+except ImportError:
+    # Handle case when achievements_dashboard.py doesn't exist ye
+    def render_achievements_dashboard():
+        st.error("Achievements dashboard module not found.")
 
 
 def load_salary_data():
     """Load salary data from CSV files"""
     data = {}
-    csv_path_2023 = os.path.join(os.path.dirname(__file__), "salary_2023.csv")
-    csv_path_2024 = os.path.join(os.path.dirname(__file__), "salary_2024.csv")
-    csv_path_2025 = os.path.join(os.path.dirname(__file__), "salary_2025.csv")
 
-    if os.path.exists(csv_path_2023):
-        data["2023"] = pd.read_csv(csv_path_2023)
+    # Get all salary CSV files in the directory
+    current_dir = os.path.dirname(__file__)
+    salary_files = glob.glob(os.path.join(current_dir, "salary_*.csv"))
 
-    if os.path.exists(csv_path_2024):
-        data["2024"] = pd.read_csv(csv_path_2024)
+    # Extract years from filenames and sort them
+    years = []
+    for file_path in salary_files:
+        # Extract year from filename (e.g., "salary_2023.csv" -> "2023")
+        filename = os.path.basename(file_path)
+        year_match = re.search(r"salary_(\d{4})\.csv", filename)
+        if year_match:
+            year = year_match.group(1)
+            years.append(year)
+            # Load the data
+            data[year] = pd.read_csv(file_path)
 
-    if os.path.exists(csv_path_2025):
-        data["2025"] = pd.read_csv(csv_path_2025)
+    # Sort years chronologically
+    years.sort()
 
-    return data
+    return data, years
 
 
-def main():
+def render_salary_dashboard():
+    """Render the salary comparison dashboard"""
     st.title("Salary Comparison Tool")
     st.write(
         "Compare actual vs. adjusted salaries with penetration rate analysis"
     )
 
     # Load salary data
-    salary_data = load_salary_data()
+    salary_data, available_years = load_salary_data()
 
-    if not salary_data:
+    if not salary_data or not available_years:
         st.error(
-            "Salary data CSV files not found. Please check that the CSV files exist in the same directory as the script."
+            """Salary data CSV files not found. Please check that the
+            CSV files exist in the same directory as the script."""
         )
         return
 
     # Sidebar for user inputs
     st.sidebar.header("Input Parameters")
 
-    # Get available levels from 2024 data
-    levels = salary_data["2024"]["Level"].unique().tolist()
+    # Use latest year for level selection
+    latest_year = available_years[-1]
+
+    # Get available levels from the latest year's data
+    levels = salary_data[latest_year]["Level"].unique().tolist()
     levels.sort()
 
     # Job level selection
     selected_level = st.sidebar.selectbox("Select Job Level", levels)
 
-    # Get data for selected level
-    level_data_2024 = salary_data["2024"][
-        salary_data["2024"]["Level"] == selected_level
-    ].iloc[0]
-    level_data_2025 = salary_data["2025"][
-        salary_data["2025"]["Level"] == selected_level
-    ].iloc[0]
-
-    # Years to analyze
-    years = ["2023", "2024", "2025"]
-
-    # Get data for selected level
-    level_data_2023 = None
-    if "2023" in salary_data:
-        level_data_2023 = salary_data["2023"][
-            salary_data["2023"]["Level"] == selected_level
-        ].iloc[0]
+    # Get data for selected level for each available year
+    level_data = {}
+    for year in available_years:
+        year_data = salary_data[year]
+        filtered_data = year_data[year_data["Level"] == selected_level]
+        if not filtered_data.empty:
+            level_data[year] = filtered_data.iloc[0]
 
     # Get actual salary input for each year
     actual_salaries = {}
-    for year in years:
+    for year in available_years:
+        if year not in level_data:
+            continue
+
+        # Determine default value based on year data format
         default_value = 0
-        if year == "2023" and level_data_2023 is not None:
-            default_value = float(level_data_2023["Lower_Mid_Zone"])
-        elif year == "2024":
-            default_value = float(level_data_2024["Lower_Mid_Zone"])
-        elif year == "2025":
-            default_value = float(level_data_2025["Middle_Min"])
+        year_data = level_data[year]
+
+        # Handle different column naming conventions
+        if "Middle_Min" in year_data:  # New format (2025+)
+            default_value = float(year_data["Middle_Min"])
+        elif "Lower_Mid_Zone" in year_data:  # Old format (2023-2024)
+            default_value = float(year_data["Lower_Mid_Zone"])
 
         actual_salaries[year] = st.sidebar.number_input(
             f"Your Actual Salary for {year} (DKK)",
@@ -89,59 +104,65 @@ def main():
     # Create ranges data structure
     ranges = []
 
-    # Add 2023 data if available
-    if level_data_2023 is not None:
-        ranges.append(
-            {
-                "year": "2023",
-                "min": float(level_data_2023["Minimum"]),
-                "max": float(level_data_2023["Maximum"]),
-                "median": float(
-                    (
-                        level_data_2023["Lower_Mid_Zone"]
-                        + level_data_2023["Upper_Mid_Zone"]
-                    )
-                    / 2
-                ),
-                "specific_price_1": actual_salaries["2023"],
-            }
-        )
+    # Add data for each year
+    for year in available_years:
+        if year not in level_data or year not in actual_salaries:
+            continue
 
-    # Add 2024 data
-    ranges.append(
-        {
-            "year": "2024",
-            "min": float(level_data_2024["Minimum"]),
-            "max": float(level_data_2024["Maximum"]),
-            "median": float(
-                (
-                    level_data_2024["Lower_Mid_Zone"]
-                    + level_data_2024["Upper_Mid_Zone"]
-                )
-                / 2
-            ),
-            "specific_price_1": actual_salaries["2024"],
-        }
-    )
+        year_data = level_data[year]
+        year_range = {"year": year, "specific_price_1": actual_salaries[year]}
 
-    # Add 2025 data
-    ranges.append(
-        {
-            "year": "2025",
-            "min": float(level_data_2025["Lower_Min"]),
-            "max": float(level_data_2025["Upper_Max"]),
-            "median": float(
-                (level_data_2025["Middle_Min"] + level_data_2025["Middle_Max"])
-                / 2
-            ),
-            "specific_price_1": actual_salaries["2025"],
-        }
-    )
+        # Handle different column naming conventions
+        if all(col in year_data for col in ["Lower_Min", "Upper_Max"]):
+            # New format (2025+)
+            year_range.update(
+                {
+                    "min": float(year_data["Lower_Min"]),
+                    "max": float(year_data["Upper_Max"]),
+                    "median": float(
+                        (
+                            float(year_data["Middle_Min"])
+                            + float(year_data["Middle_Max"])
+                        )
+                        / 2
+                    ),
+                }
+            )
+        elif all(col in year_data for col in ["Minimum", "Maximum"]):
+            # Old format (2023-2024)
+            year_range.update(
+                {
+                    "min": float(year_data["Minimum"]),
+                    "max": float(year_data["Maximum"]),
+                    "median": float(
+                        (
+                            float(year_data["Lower_Mid_Zone"])
+                            + float(year_data["Upper_Mid_Zone"])
+                        )
+                        / 2
+                    ),
+                }
+            )
+
+        ranges.append(year_range)
+
+    # Make sure we have ranges data
+    if not ranges:
+        st.error("No valid salary range data found for the selected level.")
+        return
 
     # Select which year to base the penetration rate on
-    base_year_index = (
-        1 if len(ranges) > 2 else 0
-    )  # Use 2024 (index 1) if we have 2023 data, otherwise use first year
+    # Use the second year if available (likely to be more reliable), otherwise use first year
+    middle_index = min(
+        1, len(ranges) - 1
+    )  # Second year or first if only one year
+    base_year_index = st.sidebar.selectbox(
+        "Base Year for Penetration Rate",
+        range(len(ranges)),
+        index=middle_index,
+        format_func=lambda i: ranges[i]["year"],
+        key="base_year_index",
+    )
     base_year = ranges[base_year_index]["year"]
 
     # Calculate relative position (penetration rate)
@@ -185,7 +206,7 @@ def main():
     ].apply(lambda x: f"{x:.2%}")
     st.dataframe(df_penetration)
 
-    # Create plot
+    # Create plo
     fig, ax = plt.subplots(figsize=(10, 6))
 
     # Define offsets for actual and adjusted salaries to avoid overlap
@@ -214,10 +235,10 @@ def main():
             label="Median" if index == 0 else "",
         )
 
-        # Plot actual salary (Blue X) with vertical offset
+        # Plot actual salary (Blue X) with vertical offse
         ax.scatter(
             val["specific_price_1"],
-            index + actual_offset,  # Apply vertical offset
+            index + actual_offset,  # Apply vertical offse
             color="blue",
             marker="X",  # Use X marker
             s=100,  # Larger marker size
@@ -235,10 +256,11 @@ def main():
             fontsize=9,
         )
 
-        # Plot adjusted salary based on penetration rate (Green X) with vertical offset
+        # Plot adjusted salary based on penetration
+        # rate (Green X) with vertical offse
         ax.scatter(
             adjusted_salaries[index],
-            index + adjusted_offset,  # Apply vertical offset
+            index + adjusted_offset,  # Apply vertical offse
             color="green",
             marker="X",  # Use X marker
             s=100,  # Larger marker size
@@ -282,7 +304,7 @@ def main():
         plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x)))
     )
 
-    # Display plot in Streamlit
+    # Display plot in Streamli
     st.subheader("Salary Visualization")
     st.pyplot(fig)
 
@@ -293,14 +315,16 @@ def main():
     - **Grey bars**: Salary range for each year (Level {selected_level})
     - **Red lines**: Median salary for each year
     - **Blue X**: Your actual salary
-    - **Green X**: Adjusted salary based on {base_year} penetration rate ({relative_position:.2%})
+    - **Green X**: Adjusted salary based on {base_year}
+    penetration rate ({relative_position:.2%})
     - **Penetration Rate**: Your position within the salary range
-    
+
     ### What does this mean?
-    If your {base_year} salary maintains the same relative position ({relative_position:.2%}) 
+    If your {base_year} salary maintains the same relative position
+    ({relative_position:.2%})
     within the salary ranges for other years, your adjusted salaries would be:
     """
-    )
+    )  # noqa
 
     # Create a simple table of adjusted salaries for all years
     adjusted_df = pd.DataFrame(
@@ -313,10 +337,43 @@ def main():
     )
     st.table(adjusted_df)
 
+    # Display the calculation image and explanation
+    st.subheader("Understanding Penetration Rate Calculation")
+
+    # Display the image full width first
+    image_path = os.path.join(os.path.dirname(__file__), "calculation.png")
+    st.image(image_path, use_container_width=True)
+
+    # Then add the explanation below
+    st.markdown(
+        """
+    ### Range Penetration (RP)
+    
+    The Range Penetration (RP) is a key metric that shows your position within your salary range.
+    
+    **Formula**:
+    ```
+    RP = (Salary - Range Minimum) / (Range Maximum - Range Minimum)
+    ```
+    
+    **What this means**:
+    
+    - **0-33%**: You're in the lower third of the range, typically indicating you're new to the role or still developing key competencies.
+    
+    - **33-66%**: You're in the middle of the range, showing you're fully competent and performing effectively in your role.
+    
+    - **66-100%**: You're in the upper third, indicating high performance and extensive experience in your role.
+    
+    - **>100%**: Your salary exceeds the typical range for your level, often due to exceptional performance or specific market factors.
+    
+    Your penetration rate helps you understand your compensation relative to your peers and provides insight into your potential for salary growth.
+    """
+    )
+
     # Create a future trend projection
     st.subheader("Future Salary Trend Projection")
     st.write(
-        "Projection of salary ranges for the next two years if current trends continue"
+        "Projection of salary ranges for the next two years if current trends continue"  # noqa
     )
 
     # Calculate average growth rates based on available data
@@ -377,7 +434,8 @@ def main():
         # Extend adjusted salaries with projections
         all_adjusted = adjusted_salaries + projected_adjusted
 
-        # Create a trend visualization showing both the base trend and expected earnings
+        # Create a trend visualization showing both the base
+        # trend and expected earnings
         fig2, ax2 = plt.subplots(figsize=(10, 6))
 
         # Combine historical and projected years
@@ -468,14 +526,16 @@ def main():
         ax2.grid(True, alpha=0.3)
         ax2.legend(loc="upper left")
 
-        # Show plot
+        # Show plo
         st.pyplot(fig2)
 
         # Add explanation of projected values
         st.markdown(
             f"""
-        ### Expected Future Salary
-        Based on the growth trends from {min(all_years)} to {max(all_years)}, here's what you can expect to earn in the coming years:
+            ### Expected Future Salary
+            Based on the growth trends from
+            {min(all_years)} to {max(all_years)},
+            here's what you can expect to earn in the coming years:
         """
         )
 
@@ -532,17 +592,36 @@ def main():
             f"""
         ### How This Projection Works
         - Your {base_year} penetration rate is {relative_position:.2%}
-        - The projection assumes you maintain this same position within future salary ranges
-        - Salary ranges are projected to grow at {max_growth_rate:.2%} per year (based on historical data)
+        - The projection assumes you maintain this same position within future
+        salary ranges
+        - Salary ranges are projected to grow at {max_growth_rate:.2%} per year
+        (based on historical data)
         - Your expected salary grows with the overall market for your level
-        
-        This projection gives you a realistic view of future earnings if market trends continue and you maintain the same relative position within your salary band.
+
+        This projection gives you a realistic view of future earnings
+        if market trends continue and
+        you maintain the same relative position within your salary band.
         """
         )
     else:
         st.warning(
             "Need at least two years of historical data to project trends."
         )
+
+
+def main():
+    """Main entry point for the application"""
+    st.sidebar.title("Navigation")
+    app_mode = st.sidebar.radio(
+        "Select Dashboard",
+        ["Salary Comparison", "Professional Achievements"],
+        key="navigation",
+    )
+
+    if app_mode == "Salary Comparison":
+        render_salary_dashboard()
+    else:
+        render_achievements_dashboard()
 
 
 if __name__ == "__main__":

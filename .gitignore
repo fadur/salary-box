@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Streamlit
+.streamlit/watch-artifacts/
+.streamlit/secrets.toml
+
+# Project specific
+*.log
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Potential sensitive data
+*.key
+*.pem
+*_credentials.json
+*credentials.json
+.env*
+
+# OS specific
+.DS_Store
+Thumbs.db
+*CLAUDE*
