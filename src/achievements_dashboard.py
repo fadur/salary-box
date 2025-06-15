@@ -512,4 +512,3 @@ def render_achievements_dashboard():
 
 if __name__ == "__main__":
     render_achievements_dashboard()
-    render_achievements_dashboard()
